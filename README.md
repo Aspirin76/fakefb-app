@@ -56,6 +56,7 @@ npm run dev          # http://localhost:3000
 | `npm run db:seed` | 建立示範資料 |
 | `npm run setup:env` | 把「貼上-Resend-金鑰.txt」的金鑰同步到 `.env` |
 | `npm run test:smoke` | 端到端煙霧測試（需先開好 dev server） |
+| `npm run test:email` | 真的呼叫 Resend 寄一封信出來（需先開好 dev server） |
 | `npm run lint` | ESLint |
 
 ---

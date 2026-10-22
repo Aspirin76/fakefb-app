@@ -13,6 +13,7 @@
     "db:seed": "node prisma/seed.mjs",
     "setup:env": "node scripts/sync-env.mjs",
     "test:smoke": "node scripts/smoke-test.mjs",
+    "test:email": "node scripts/test-email-send.mjs",
     "postinstall": "prisma generate"
   },
   "prisma": {

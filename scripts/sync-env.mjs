@@ -24,7 +24,7 @@ function pick(key) {
   // 注意：用 [ \t] 而不是 \s，否則 \s 會吃到換行、把下一行也當成值
   const match = note.match(new RegExp(`^${key}[ \\t]*=[ \\t]*(.*)$`, "m"));
   if (!match) return undefined;
-  const value = match[1].trim();
+  const value = match[1].trim().replace(/^["']|["']$/g, "");
   return value.length > 0 ? value : undefined;
 }
 
