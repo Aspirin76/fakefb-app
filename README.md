@@ -14,6 +14,7 @@
 | 重新寄送驗證信 | 沒收到信可以自己再寄一封 |
 | 動態牆 | 登入後可以發文、看到自己的貼文 |
 | 搜尋 | 依姓名 / Email 找使用者 |
+| **AI 聊天** | 跟 NPC 好友聊天，**用 OpenCode 當 LLM 引擎**，每個 NPC 有自己的人設與記憶 |
 | 開發信箱 | 每封寄出的驗證信都會記錄在 `dev-mails.log`（含驗證連結），方便本地查看 |
 | 開發模式 | 沒設定 `RESEND_API_KEY` 時，驗證連結會直接顯示在畫面上，流程照跑 |
 
@@ -57,6 +58,7 @@ npm run dev          # http://localhost:3000
 | `npm run db:seed` | 建立示範資料 |
 | `npm run setup:env` | 把「貼上-Resend-金鑰.txt」的金鑰同步到 `.env` |
 | `npm run test:smoke` | 端到端煙霧測試（需先開好 dev server） |
+| `npm run test:chat` | 聊天功能測試：登入 → 送訊息 → 確認 NPC 回覆 |
 | `npm run test:email` | 真的呼叫 Resend 寄一封信出來（需先開好 dev server） |
 | `npm run lint` | ESLint |
 
@@ -138,12 +140,53 @@ npm run dev          # http://localhost:3000
 
 ---
 
+## AI 聊天（OpenCode 當 LLM 引擎）
+
+FakeBook 裡有兩個 NPC 好友：**小葵**（開朗好奇）跟 **阿哲**（沉穩理性）。
+登入後從 navbar 的「聊天」進去就能跟他們對話。
+
+### 運作原理
+
+```
+瀏覽器 → POST /api/chat/[id]/messages
+             │
+             ├─ 1. 使用者訊息寫進 SQLite
+             ├─ 2. 呼叫 OpenCode（本機背景服務）送出訊息
+             │      每個 NPC = 一個 OpenCode agent（人設寫在 system prompt）
+             │      每段對話 = 一個 OpenCode session（所以有上下文記憶）
+             ├─ 3. 輪詢 OpenCode 直到拿到文字回覆
+             └─ 4. NPC 回覆寫進 SQLite → 回傳給瀏覽器
+```
+
+- **引擎**：`@opencode/client` 連到本機的 OpenCode 背景服務（`Service.ensure()` 會自動發現或啟動）
+- **模型**：`OPENCODE_MODEL`，預設 `opencode/minimax-m3.1-flash-free`
+- **人設**：寫在 `src/lib/npcs.ts`，會被轉成 OpenCode agent 的 system prompt
+- **工作目錄**：每個 NPC 一個資料夾（預設 `%TEMP%/fakebook-npc/<npcId>/`），
+  裡面會產生 `opencode.json` 與該 NPC 的 OpenCode session
+
+### 已知限制
+
+- 回覆要 3～15 秒（free tier 模型 + 本機推論）
+- OpenCode free tier **不接受把工具權限全部關掉的設定**（會回 403），
+  所以 NPC 的工具是用「人設 prompt」約束，而不是權限封鎖。
+  就算 AI 真的去用工具，也只會在它自己的暫存工作目錄裡。
+- 人設或 prompt 一改，該對話會自動開新的 OpenCode session（避免舊角色殘留）
+
+### 測試
+
+```bash
+npm run dev        # 終端機 1
+npm run test:chat  # 終端機 2：登入 → 送訊息 → 確認 NPC 有回覆
+```
+
+---
+
 ## 專案結構
 
 ```
 prisma/
-  schema.prisma          User / Session / VerificationToken / Post
-  seed.mjs               示範資料
+  schema.prisma          User / Session / VerificationToken / Post / Conversation / Message
+  seed.mjs               示範資料 + NPC 角色
 src/
   app/
     layout.tsx           根版面 + navbar
@@ -155,21 +198,28 @@ src/
     resend-verification/ 重寄驗證信
     feed/                動態牆（需登入）
     search/              搜尋使用者
+    chat/                聊天（對話清單 / 對話頁）
     api/auth/me/         給 navbar 查目前登入者
+    api/chat/[conversationId]/messages/   送訊息給 NPC
     actions/
       auth.ts            register / login / logout / resend 這幾個 Server Action
       post.ts            發貼 Server Action
   components/
     NavBar.tsx  UserMenu.tsx  RegisterForm.tsx  LoginForm.tsx
-    ResendVerificationForm.tsx  PostComposer.tsx
+    ResendVerificationForm.tsx  PostComposer.tsx  ChatPanel.tsx
   lib/
     prisma.ts            Prisma Client 單例
     session.ts           session 建立 / 讀取 / 銷毀
     verification.ts      驗證 token 產生與核對
     email.ts             Resend 寄信 + HTML 樣板
+    opencode.ts          OpenCode 聊天引擎（NPC agent / session / 收訊息）
+    npcs.ts              NPC 角色設定
     validation.ts        Zod schema
 scripts/
   smoke-test.mjs         端到端煙霧測試
+  test-chat.mjs          聊天功能測試
+  test-email-send.mjs    真實寄信測試
+  sync-env.mjs           把「貼上-Resend-金鑰.txt」同步到 .env
 ```
 
 ---

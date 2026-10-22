@@ -22,6 +22,12 @@ export function NavBar() {
         </form>
 
         <nav className="ml-auto flex items-center gap-2">
+          <Link
+            href="/chat"
+            className="hidden rounded-md bg-white/20 px-3 py-1.5 text-sm font-semibold text-white hover:bg-white/30 sm:block"
+          >
+            聊天
+          </Link>
           <UserMenu />
         </nav>
       </div>
