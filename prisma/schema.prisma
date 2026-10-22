@@ -25,38 +25,60 @@ model User {
   sessions     Session[]
   verifyTokens VerificationToken[]
   messages     Message[]
-  conversationsAsUser Conversation[] @relation("ConversationsAsUser")
-  conversationsAsNpc  Conversation[] @relation("ConversationsAsNpc")
+  conversationsAsUser Conversation[]      @relation("ConversationsAsUser")
+  conversationMemberships ConversationMember[] @relation("ConversationMembers")
 }
 
 model Conversation {
   id                String   @id @default(cuid())
   userId            String
-  npcId             String
+  name              String?
+  type              String   @default("dm") // dm | group
   opencodeSessionId String?
   opencodeConfigHash String?
+  lastReadAt        DateTime?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
-  user     User      @relation("ConversationsAsUser", fields: [userId], references: [id], onDelete: Cascade)
-  npc      User      @relation("ConversationsAsNpc", fields: [npcId], references: [id], onDelete: Cascade)
+  user     User                 @relation("ConversationsAsUser", fields: [userId], references: [id], onDelete: Cascade)
+  members  ConversationMember[]
   messages Message[]
 
-  @@unique([userId, npcId])
+  @@index([userId])
+}
+
+model ConversationMember {
+  id             String   @id @default(cuid())
+  conversationId String
+  userId         String
+  joinedAt       DateTime @default(now())
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user         User         @relation("ConversationMembers", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, userId])
   @@index([userId])
 }
 
 model Message {
-  id             String   @id @default(cuid())
+  id             String    @id @default(cuid())
   conversationId String
   senderId       String
+  type           String    @default("text") // text | sticker | photo
   content        String
-  createdAt      DateTime @default(now())
+  replyToId      String?
+  reactions      String    @default("{}") // JSON: { userId: emoji }
+  readAt         DateTime?
+  deletedAt      DateTime?
+  createdAt      DateTime  @default(now())
 
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   sender       User         @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  replyTo      Message?     @relation("MessageReplies", fields: [replyToId], references: [id])
+  replies      Message[]    @relation("MessageReplies")
 
   @@index([conversationId])
+  @@index([conversationId, createdAt])
 }
 
 model Session {

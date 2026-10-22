@@ -12,16 +12,19 @@ export const NPC_DEFINITIONS = [
     name: "小葵",
     email: "npc-kui@fakebook.local",
     color: "#f58518",
+    handle: "kui",
     persona: [
       "個性開朗、好奇心旺盛，愛追問細節。",
       "很愛分享自己逛過的店跟景點，講話帶點俏皮。",
       "遇到不會的就會坦率說「我也不確定」，不裝懂。",
-    ].join("\n"),  },
+    ].join("\n"),
+  },
   {
     id: "npc-zhe",
     name: "阿哲",
     email: "npc-zhe@fakebook.local",
     color: "#8b5cf6",
+    handle: "zhe",
     persona: [
       "個性沉穩理性，講話簡潔、不浮誇。",
       "喜歡從原理跟經驗的角度分析事情，偶爾會提出相反的觀點。",
@@ -32,34 +35,48 @@ export const NPC_DEFINITIONS = [
 
 export type NpcDefinition = (typeof NPC_DEFINITIONS)[number];
 
-/** 把資料庫裡的 NPC 使用者取出來，附上可以直接餵給 opencode 的設定 */
-export async function getNpcUsers() {
+/** NPC 的基本資料（給前端用） */
+export type NpcInfo = {
+  id: string;
+  name: string;
+  color: string;
+  handle: string;
+  persona: string;
+};
+
+/** 把資料庫裡的 NPC 使用者取出來 */
+export async function getNpcUsers(): Promise<NpcInfo[]> {
   const npcs = await prisma.user.findMany({
     where: { isNpc: true },
     orderBy: { createdAt: "asc" },
   });
 
-  return npcs.map((npc) => ({
-    id: npc.id,
-    name: npc.name,
-    persona: npc.persona ?? "",
-    color:
-      NPC_DEFINITIONS.find((d) => d.id === npc.id)?.color ?? "#1877f2",
-  }));
+  return npcs.map((npc) => {
+    const def = NPC_DEFINITIONS.find((d) => d.id === npc.id);
+    return {
+      id: npc.id,
+      name: npc.name,
+      color: def?.color ?? "#1877f2",
+      handle: def?.handle ?? npc.id,
+      persona: npc.persona ?? "",
+    };
+  });
 }
 
 /** 取得單一 NPC */
-export async function getNpc(npcId: string) {
+export async function getNpc(npcId: string): Promise<NpcInfo | null> {
   const npc = await prisma.user.findFirst({
     where: { id: npcId, isNpc: true },
   });
 
   if (!npc) return null;
 
+  const def = NPC_DEFINITIONS.find((d) => d.id === npc.id);
   return {
     id: npc.id,
     name: npc.name,
+    color: def?.color ?? "#1877f2",
+    handle: def?.handle ?? npc.id,
     persona: npc.persona ?? "",
-    color: NPC_DEFINITIONS.find((d) => d.id === npc.id)?.color ?? "#1877f2",
   };
 }

@@ -143,7 +143,23 @@ npm run dev          # http://localhost:3000
 ## AI 聊天（OpenCode 當 LLM 引擎）
 
 FakeBook 裡有兩個 NPC 好友：**小葵**（開朗好奇）跟 **阿哲**（沉穩理性）。
-登入後從 navbar 的「聊天」進去就能跟他們對話。
+登入後從 navbar 的「聊天」進去就能跟他們對話，也可以組成**群組聊天**讓兩個人一起回你。
+
+### 聊天功能
+
+| 功能 | 說明 |
+| --- | --- |
+| 1 對 1 / 群組聊天 | 群組聊天時 AI 會用「名字：內容」回覆，自動拆成不同人的訊息 |
+| 貼圖 | 😊 按鈕開啟貼圖列，16 個表情可直接送 |
+| 快速回覆 | 輸入框上方的常用語一鍵送出 |
+| 回覆引用 | 點訊息 → 回覆，會顯示被引用的內容 |
+| 表情回應 | 點訊息 → 選表情，可以再加一次取消 |
+| 刪除訊息 | 只能刪自己的，刪掉後顯示「這則訊息已刪除」 |
+| 複製 | 點訊息 → 複製 |
+| 已讀 / 已送出 | 自己最後一則訊息旁邊顯示 |
+| 未讀徽章 | 聊天清單顯示未讀數與最後一則訊息預覽 |
+| 日期分隔 | 訊息依日期插入分隔線 |
+| 打字中 | 等待 AI 回覆時顯示三點動畫 |
 
 ### 運作原理
 
@@ -152,31 +168,32 @@ FakeBook 裡有兩個 NPC 好友：**小葵**（開朗好奇）跟 **阿哲**（
              │
              ├─ 1. 使用者訊息寫進 SQLite
              ├─ 2. 呼叫 OpenCode（本機背景服務）送出訊息
-             │      每個 NPC = 一個 OpenCode agent（人設寫在 system prompt）
+             │      每段對話 = 一個 OpenCode agent（人設寫在 system prompt）
              │      每段對話 = 一個 OpenCode session（所以有上下文記憶）
              ├─ 3. 輪詢 OpenCode 直到拿到文字回覆
-             └─ 4. NPC 回覆寫進 SQLite → 回傳給瀏覽器
+             ├─ 4. 群組的話把「名字：內容」拆成多則訊息
+             └─ 5. 回覆寫進 SQLite → 回傳給瀏覽器
 ```
 
 - **引擎**：`@opencode/client` 連到本機的 OpenCode 背景服務（`Service.ensure()` 會自動發現或啟動）
 - **模型**：`OPENCODE_MODEL`，預設 `opencode/minimax-m3.1-flash-free`
 - **人設**：寫在 `src/lib/npcs.ts`，會被轉成 OpenCode agent 的 system prompt
-- **工作目錄**：每個 NPC 一個資料夾（預設 `%TEMP%/fakebook-npc/<npcId>/`），
-  裡面會產生 `opencode.json` 與該 NPC 的 OpenCode session
+- **工作目錄**：每段對話一個資料夾（預設 `%TEMP%/fakebook-npc/<指紋>/`），
+  裡面會產生 `opencode.json` 與該對話的 OpenCode session
+- **人設改了會自動開新 session**（用 prompt 指紋判斷），避免舊角色殘留
 
 ### 已知限制
 
-- 回覆要 3～15 秒（free tier 模型 + 本機推論）
+- 回覆要 3～20 秒（free tier 模型 + 本機推論），free tier 忙碌時會自動重試
 - OpenCode free tier **不接受把工具權限全部關掉的設定**（會回 403），
   所以 NPC 的工具是用「人設 prompt」約束，而不是權限封鎖。
   就算 AI 真的去用工具，也只會在它自己的暫存工作目錄裡。
-- 人設或 prompt 一改，該對話會自動開新的 OpenCode session（避免舊角色殘留）
 
 ### 測試
 
 ```bash
 npm run dev        # 終端機 1
-npm run test:chat  # 終端機 2：登入 → 送訊息 → 確認 NPC 有回覆
+npm run test:chat  # 終端機 2：建立對話 → 送訊息 → 表情 / 引用 / 刪除 / 群組
 ```
 
 ---
@@ -185,7 +202,7 @@ npm run test:chat  # 終端機 2：登入 → 送訊息 → 確認 NPC 有回覆
 
 ```
 prisma/
-  schema.prisma          User / Session / VerificationToken / Post / Conversation / Message
+  schema.prisma          User / Session / VerificationToken / Post / Conversation / ConversationMember / Message
   seed.mjs               示範資料 + NPC 角色
 src/
   app/
@@ -200,19 +217,25 @@ src/
     search/              搜尋使用者
     chat/                聊天（對話清單 / 對話頁）
     api/auth/me/         給 navbar 查目前登入者
-    api/chat/[conversationId]/messages/   送訊息給 NPC
+    api/chat/            建立對話（1 對 1 / 群組）
+    api/chat/[conversationId]/messages/          送訊息
+    api/chat/[conversationId]/messages/[id]/react  表情回應
+    api/chat/[conversationId]/messages/[id]/       刪除訊息
+    api/chat/[conversationId]/read/               標記已讀
     actions/
       auth.ts            register / login / logout / resend 這幾個 Server Action
       post.ts            發貼 Server Action
   components/
     NavBar.tsx  UserMenu.tsx  RegisterForm.tsx  LoginForm.tsx
-    ResendVerificationForm.tsx  PostComposer.tsx  ChatPanel.tsx
+    ResendVerificationForm.tsx  PostComposer.tsx
+    ChatPanel.tsx  NewChatButton.tsx  NewChatDialog.tsx
   lib/
     prisma.ts            Prisma Client 單例
     session.ts           session 建立 / 讀取 / 銷毀
     verification.ts      驗證 token 產生與核對
     email.ts             Resend 寄信 + HTML 樣板
-    opencode.ts          OpenCode 聊天引擎（NPC agent / session / 收訊息）
+    opencode.ts          OpenCode 聊天引擎（NPC agent / session / 收訊息 / 群組拆訊息）
+    chat.ts              聊天室資料存取（對話、成員、未讀數、訊息序列化）
     npcs.ts              NPC 角色設定
     validation.ts        Zod schema
 scripts/

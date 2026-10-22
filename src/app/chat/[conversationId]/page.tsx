@@ -4,7 +4,7 @@ import { notFound, redirect } from "next/navigation";
 import { ChatPanel } from "@/components/ChatPanel";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
-import { getNpc } from "@/lib/npcs";
+import { getConversationForUser, serializeMessage } from "@/lib/chat";
 
 export const metadata: Metadata = {
   title: "聊天",
@@ -23,16 +23,8 @@ export default async function ConversationPage(
 
   const { conversationId } = await props.params;
 
-  const conversation = await prisma.conversation.findUnique({
-    where: { id: conversationId },
-  });
-
-  if (!conversation || conversation.userId !== user.id) {
-    notFound();
-  }
-
-  const npc = await getNpc(conversation.npcId);
-  if (!npc) {
+  const conversation = await getConversationForUser(user.id, conversationId);
+  if (!conversation) {
     notFound();
   }
 
@@ -42,39 +34,55 @@ export default async function ConversationPage(
     take: 200,
   });
 
+  const title =
+    conversation.name ??
+    conversation.npcs.map((npc) => npc.name).join("、");
+
   return (
-    <div className="mx-auto w-full max-w-2xl px-4 py-6">
-      <div className="overflow-hidden rounded-xl bg-white shadow-sm">
-        <div className="flex items-center gap-3 border-b border-[#dddfe2] p-4">
+    <div className="mx-auto flex h-[calc(100vh-3.5rem)] w-full max-w-2xl flex-col px-4 py-4">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl bg-white shadow-sm">
+        <div className="flex items-center gap-3 border-b border-[#dddfe2] p-3">
           <Link
             href="/chat"
-            className="rounded-md px-2 py-1 text-sm font-semibold text-[#606770] hover:bg-[#f0f2f5]"
+            className="rounded-md px-2 py-1 text-lg text-[#606770] hover:bg-[#f0f2f5]"
+            aria-label="回到聊天列表"
           >
             ←
           </Link>
-          <span
-            className="flex h-10 w-10 items-center justify-center rounded-full text-base font-bold text-white"
-            style={{ backgroundColor: npc.color }}
-          >
-            {npc.name.slice(0, 1)}
-          </span>
-          <div>
-            <p className="font-semibold">{npc.name}</p>
-            <p className="text-xs text-[#8a8d91]">AI 角色 · 由 OpenCode 驅動</p>
+
+          {conversation.npcs.length > 1 ? (
+            <span className="flex h-10 w-10 items-center justify-center rounded-full bg-[#8b5cf6] text-base text-white">
+              👥
+            </span>
+          ) : (
+            <span
+              className="flex h-10 w-10 items-center justify-center rounded-full text-base font-bold text-white"
+              style={{ backgroundColor: conversation.npcs[0]?.color ?? "#1877f2" }}
+            >
+              {conversation.npcs[0]?.name.slice(0, 1) ?? "?"}
+            </span>
+          )}
+
+          <div className="min-w-0 flex-1">
+            <p className="truncate font-semibold">{title}</p>
+            <p className="text-xs text-[#8a8d91]">
+              {conversation.npcs.length > 1
+                ? `${conversation.npcs.map((n) => n.name).join("、")} · AI 群組聊天`
+                : "AI 角色 · 由 OpenCode 驅動"}
+            </p>
           </div>
         </div>
 
-        <div className="h-[60vh] min-h-[420px]">
+        <div className="min-h-0 flex-1">
           <ChatPanel
             conversationId={conversation.id}
-            npc={{ id: npc.id, name: npc.name, color: npc.color }}
-            currentUserId={user.id}
-            initialMessages={messages.map((m) => ({
-              id: m.id,
-              senderId: m.senderId,
-              content: m.content,
-              createdAt: m.createdAt.toISOString(),
+            currentUser={{ id: user.id, name: user.name }}
+            participants={conversation.npcs.map((npc) => ({
+              id: npc.id,
+              name: npc.name,
+              color: npc.color,
             }))}
+            initialMessages={messages.map(serializeMessage)}
           />
         </div>
       </div>

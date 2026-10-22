@@ -1,16 +1,18 @@
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
-import { getNpc } from "@/lib/npcs";
+import { getConversationForUser, serializeMessage } from "@/lib/chat";
 import { npcReply, npcSignature } from "@/lib/opencode";
 
 const bodySchema = z.object({
   content: z.string().trim().min(1, "訊息不能空白").max(1000, "訊息不能超過 1000 字"),
+  type: z.enum(["text", "sticker", "photo"]).default("text"),
+  replyToId: z.string().nullish(),
 });
 
 /**
  * POST /api/chat/[conversationId]/messages
- * 送一則訊息給 NPC，拿回 NPC 的回覆。
+ * 送一則訊息給 NPC，拿回 NPC 的回覆（群組聊天可能回多則）。
  */
 export async function POST(
   request: Request,
@@ -23,12 +25,12 @@ export async function POST(
 
   const { conversationId } = await params;
 
-  const conversation = await prisma.conversation.findUnique({
-    where: { id: conversationId },
-  });
-
-  if (!conversation || conversation.userId !== user.id) {
+  const conversation = await getConversationForUser(user.id, conversationId);
+  if (!conversation) {
     return Response.json({ error: "找不到這段對話" }, { status: 404 });
+  }
+  if (conversation.npcs.length === 0) {
+    return Response.json({ error: "這段對話沒有 NPC" }, { status: 400 });
   }
 
   const parsed = bodySchema.safeParse(await request.json().catch(() => ({})));
@@ -39,9 +41,16 @@ export async function POST(
     );
   }
 
-  const npc = await getNpc(conversation.npcId);
-  if (!npc) {
-    return Response.json({ error: "找不到這個 NPC" }, { status: 404 });
+  const { content, type, replyToId } = parsed.data;
+
+  // 回覆的訊息必須在這段對話裡
+  if (replyToId) {
+    const target = await prisma.message.findFirst({
+      where: { id: replyToId, conversationId: conversation.id },
+    });
+    if (!target) {
+      return Response.json({ error: "找不到要回覆的訊息" }, { status: 400 });
+    }
   }
 
   // 先把使用者訊息存起來
@@ -49,27 +58,30 @@ export async function POST(
     data: {
       conversationId: conversation.id,
       senderId: user.id,
-      content: parsed.data.content,
+      content,
+      type,
+      replyToId: replyToId ?? null,
+      readAt: new Date(),
     },
   });
 
   // 叫 AI 回覆
-  let reply: string;
-
-  // 人設（prompt）改了就要開新的 OpenCode session，否則舊的 context 會讓 AI 繼續用舊角色
-  const configHash = npcSignature(npc);
+  const isGroup = conversation.npcs.length > 1;
+  const configHash = npcSignature(conversation.npcs, isGroup);
   const sessionId =
     conversation.opencodeConfigHash === configHash
       ? conversation.opencodeSessionId
       : null;
 
+  let replies;
   try {
     const result = await npcReply({
-      npc,
+      npcs: conversation.npcs,
+      isGroup,
       sessionId,
-      message: parsed.data.content,
+      message: content,
     });
-    reply = result.reply;
+    replies = result.replies;
 
     await prisma.conversation.update({
       where: { id: conversation.id },
@@ -90,13 +102,27 @@ export async function POST(
     );
   }
 
-  const npcMessage = await prisma.message.create({
-    data: {
-      conversationId: conversation.id,
-      senderId: npc.id,
-      content: reply,
-    },
+  // 把 AI 的回覆存成訊息
+  const npcMessages = await Promise.all(
+    replies.map((reply) =>
+      prisma.message.create({
+        data: {
+          conversationId: conversation.id,
+          senderId: reply.senderId,
+          content: reply.content,
+          type: "text",
+        },
+      }),
+    ),
+  );
+
+  await prisma.conversation.update({
+    where: { id: conversation.id },
+    data: { updatedAt: new Date() },
   });
 
-  return Response.json({ userMessage, npcMessage });
+  return Response.json({
+    userMessage: serializeMessage(userMessage),
+    npcMessages: npcMessages.map(serializeMessage),
+  });
 }

@@ -10,19 +10,19 @@ import { tmpdir } from "node:os";
  *
  * 運作方式：
  *   1. 連到本機的 OpenCode 背景服務（Service.ensure() 會自動發現／啟動）
- *   2. 每個 NPC 都有自己的 OpenCode 工作目錄與專屬 agent（人設寫在 system prompt）
+ *   2. 每段對話有自己的 OpenCode 工作目錄與專屬 agent（人設寫在 system prompt）
  *   3. 每段對話對應一個 OpenCode session，所以可以記住前面的內容
  *   4. 送出訊息後輪詢訊息列表，等 AI 的文字回覆
  */
 
 const AGENT_ID = "fakebook-npc";
 
-/** NPC 的人設 */
+/** 參與對話的 NPC */
 export type NpcProfile = {
-  /** NPC 的資料庫 id，用來隔離各自的 OpenCode 工作目錄 */
   id: string;
   name: string;
-  /** 個性描述，會被寫進 OpenCode agent 的 system prompt */
+  color?: string;
+  handle?: string;
   persona: string;
 };
 
@@ -53,28 +53,39 @@ function getModel() {
   };
 }
 
-/** NPC 專屬的 OpenCode 工作目錄 */
-function npcWorkspaceDir(npcId: string) {
-  const base =
-    process.env.OPENCODE_NPC_DIR?.trim() || join(tmpdir(), "fakebook-npc");
-  return join(base, npcId);
-}
-
 /** 把人設寫成 agent 的 system prompt */
-function buildSystemPrompt(npc: NpcProfile) {
-  // 注意：prompt 裡盡量不要出現「工具」「設定」「系統」這類字，
-  // 小模型看到反而會把這些字講出來，就不像在聊天了。
+function buildSystemPrompt(npcs: NpcProfile[], isGroup: boolean) {
+  if (!isGroup) {
+    const npc = npcs[0];
+    // 注意：prompt 裡盡量不要出現「工具」「設定」「系統」這類字，
+    // 小模型看到反而會把這些字講出來，就不像在聊天了。
+    return [
+      `你是 FakeBook 社群網站上的好友「${npc.name}」，現在正在跟一位朋友傳訊息聊天。`,
+      "",
+      "【個性】",
+      npc.persona,
+      "",
+      "【說話方式】",
+      "- 像真人用 Messenger 打字那樣自然。",
+      "- 回覆 1~2 句就夠，通常 60 個字以內。",
+      "- 可以用口語詞，例如「哈」「欸」「啦」「😊」。",
+      "- 不要用條列、不要用 Markdown、不要貼長文。",
+    ].join("\n");
+  }
+
   return [
-    `你是 FakeBook 社群網站上的好友「${npc.name}」，現在正在跟一位朋友傳訊息聊天。`,
+    "你是 FakeBook 上一個群組聊天裡的幾位好友，現在正在跟一位朋友聊天。",
     "",
-    "【個性】",
-    npc.persona,
+    "【群組成員】",
+    ...npcs.map((npc) => `- ${npc.name}：${npc.persona.replace(/\n/g, " ")}`),
     "",
     "【說話方式】",
-    "- 像真人用 Messenger 打字那樣自然。",
-    "- 回覆 1~2 句就夠，通常 60 個字以內。",
+    "- 每則訊息一行，開頭寫說話的人的名字，格式：「名字：內容」。",
+    "- 一個回合最多 2~3 行，可以只有一個人回話。",
+    "- 每則內容 1~2 句、60 字以內，像真人打字。",
     "- 可以用口語詞，例如「哈」「欸」「啦」「😊」。",
     "- 不要用條列、不要用 Markdown、不要貼長文。",
+    "- 絕對不要多寫解釋或標題，只有「名字：內容」這樣的訊息。",
   ].join("\n");
 }
 
@@ -82,18 +93,25 @@ function buildSystemPrompt(npc: NpcProfile) {
  * 角色設定的指紋。
  * 人設或 prompt 有改的時候，指紋會變，對話就會開新的 OpenCode session。
  */
-export function npcSignature(npc: NpcProfile) {
+export function npcSignature(npcs: NpcProfile[], isGroup: boolean) {
   return createHash("sha256")
-    .update(buildSystemPrompt(npc))
+    .update(buildSystemPrompt(npcs, isGroup))
     .digest("hex")
     .slice(0, 16);
 }
 
+/** 對話專屬的 OpenCode 工作目錄 */
+function npcWorkspaceDir(signature: string) {
+  const base =
+    process.env.OPENCODE_NPC_DIR?.trim() || join(tmpdir(), "fakebook-npc");
+  return join(base, signature);
+}
+
 /**
- * 確保 NPC 的 OpenCode 工作目錄存在，且裡面的 opencode.json 已經寫好這個 NPC 的 agent。
+ * 確保工作目錄存在，且裡面的 opencode.json 已經寫好這個對話的 agent。
  */
-function ensureNpcWorkspace(npc: NpcProfile) {
-  const dir = npcWorkspaceDir(npc.id);
+function ensureNpcWorkspace(npcs: NpcProfile[], isGroup: boolean, signature: string) {
+  const dir = npcWorkspaceDir(signature);
   mkdirSync(dir, { recursive: true });
 
   const file = join(dir, "opencode.json");
@@ -103,8 +121,8 @@ function ensureNpcWorkspace(npc: NpcProfile) {
       agents: {
         [AGENT_ID]: {
           mode: "primary",
-          description: `${npc.name}（FakeBook 的 NPC 聊天角色）`,
-          system: buildSystemPrompt(npc),
+          description: `${npcs.map((n) => n.name).join("、")}（FakeBook 的 NPC 聊天角色）`,
+          system: buildSystemPrompt(npcs, isGroup),
         },
       },
     },
@@ -135,7 +153,7 @@ function isTransientError(error: unknown) {
 }
 
 /**
- * 剛寫好 opencode.json 時，OpenCode 還沒重新載入設定，
+ * OpenCode 剛寫好 opencode.json 時還沒重新載入設定，
  * 這時建立 session 會找不到 agent。這裡主動等它載入。
  */
 async function waitForAgentLoaded(
@@ -225,32 +243,77 @@ async function waitForReply(
   throw new Error("等待 AI 回覆逾時");
 }
 
+/** 一則 NPC 的回覆 */
+export type NpcReply = {
+  senderId: string;
+  content: string;
+};
+
+/**
+ * 把 AI 回覆拆成一個或多則訊息。
+ *
+ * 群組聊天時 AI 會用「名字：內容」的格式回答，每一行就是不同的人講的。
+ */
+export function parseReplies(text: string, npcs: NpcProfile[]): NpcReply[] {
+  const fallback = npcs[0];
+  if (!fallback) return [];
+
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const replies: NpcReply[] = [];
+
+  for (const line of lines) {
+    // 開頭是某個 NPC 的名字 + 冒號 → 那是那位 NPC 講的
+    const match = line.match(/^([^：:]{1,12})\s*[：:]\s*(.+)$/);
+    if (match) {
+      const [, name, content] = match;
+      const speaker = npcs.find(
+        (npc) => npc.name === name.trim() || npc.id === name.trim(),
+      );
+      if (speaker && content.trim()) {
+        replies.push({ senderId: speaker.id, content: content.trim() });
+        continue;
+      }
+    }
+
+    replies.push({ senderId: fallback.id, content: line });
+  }
+
+  return replies.slice(0, 4);
+}
+
 export type NpcReplyResult = {
   sessionId: string;
-  reply: string;
+  replies: NpcReply[];
 };
 
 /**
  * 讓 NPC 回覆一句話。
  *
- * @param npc      NPC 的人設
+ * @param npcs      參與對話的 NPC（群組聊天時會有多個）
  * @param sessionId 既有的 OpenCode session（沒有就會新建）
- * @param message  使用者說的話
+ * @param message   使用者說的話
  */
 export async function npcReply({
-  npc,
+  npcs,
+  isGroup,
   sessionId,
   message,
 }: {
-  npc: NpcProfile;
+  npcs: NpcProfile[];
+  isGroup: boolean;
   sessionId?: string | null;
   message: string;
 }): Promise<NpcReplyResult> {
   const client = await getClient();
-  const dir = ensureNpcWorkspace(npc);
+  const signature = npcSignature(npcs, isGroup);
+  const dir = ensureNpcWorkspace(npcs, isGroup, signature);
   const model = getModel();
 
-  // 等 OpenCode 載入這個 NPC 的 agent 設定
+  // 等 OpenCode 載入這個對話的 agent 設定
   await waitForAgentLoaded(client, dir);
 
   // 1. 取得或建立 session
@@ -299,7 +362,10 @@ export async function npcReply({
 
     try {
       const reply = await waitForReply(client, activeSessionId, knownMessageIds);
-      return { sessionId: activeSessionId, reply };
+      return {
+        sessionId: activeSessionId,
+        replies: parseReplies(reply, npcs),
+      };
     } catch (error) {
       if (isAgentNotFound(error)) {
         lastError = error;
@@ -321,7 +387,7 @@ export async function npcReply({
   throw lastError ?? new Error("AI 回覆失敗，請稍後再試一次。");
 }
 
-/** 檢查 OpenCode 服務是否連得上（給 /api/chat/status 或頁面顯示用） */
+/** 檢查 OpenCode 服務是否連得上 */
 export async function checkOpencode() {
   try {
     const client = await getClient();
