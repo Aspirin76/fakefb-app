@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
+import { publish } from "@/lib/realtime";
 import { getCurrentUser } from "@/lib/session";
 import { flattenErrors } from "@/lib/validation";
 
@@ -35,9 +36,12 @@ export async function createPostAction(
     return { fieldErrors: flattenErrors(parsed.error) };
   }
 
-  await prisma.post.create({
+  const post = await prisma.post.create({
     data: { content: parsed.data.content, authorId: user!.id },
   });
+
+  // 廣播給其他連線中的用戶
+  publish("post:new", { post });
 
   revalidatePath("/feed");
   return {};

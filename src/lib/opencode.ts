@@ -203,7 +203,10 @@ async function waitForReply(
   const deadline = Date.now() + timeoutMs;
 
   while (Date.now() < deadline) {
-    const { data } = await client.message.list({ sessionID });
+    const { data } = await client.message.list(
+      { sessionID },
+      { signal: AbortSignal.timeout(10_000) },
+    );
     const messages = data as unknown as OpencodeMessage[];
 
     // 只看這一輪新產生的 assistant 訊息
@@ -321,26 +324,39 @@ export async function npcReply({
   let lastError: unknown;
 
   const MAX_ATTEMPTS = 3;
+  const overallDeadline = Date.now() + 150_000;
 
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    if (Date.now() > overallDeadline) break;
+
     if (!activeSessionId) {
-      const session = await client.session.create({
-        agent: AGENT_ID,
-        model: { id: model.modelID, providerID: model.providerID },
-        location: { directory: dir },
-      });
+      const session = await client.session.create(
+        {
+          agent: AGENT_ID,
+          model: { id: model.modelID, providerID: model.providerID },
+          location: { directory: dir },
+        },
+        { signal: AbortSignal.timeout(20_000) },
+      );
       activeSessionId = session.id;
     }
 
     // 記下目前有哪些訊息，等下才認得「這一輪」新產生的回覆
-    const before = await client.message.list({ sessionID: activeSessionId });
+    const before = await client.message.list(
+      { sessionID: activeSessionId },
+      { signal: AbortSignal.timeout(10_000) },
+    );
     const knownMessageIds = new Set(before.data.map((m) => m.id));
 
     try {
-      await client.session.prompt({
-        sessionID: activeSessionId,
-        text: message,
-      });
+      await client.session.prompt(
+        {
+          sessionID: activeSessionId,
+          text: message,
+        },
+        // provider 有時候會卡住，給它一個上限
+        { signal: AbortSignal.timeout(60_000) },
+      );
     } catch (error) {
       if (isAgentNotFound(error)) {
         // 舊 session 綁的 agent 不見了（例如工作目錄被清掉）→ 換新的 session 再試
@@ -361,6 +377,8 @@ export async function npcReply({
     }
 
     try {
+      if (Date.now() > overallDeadline) break;
+
       const reply = await waitForReply(client, activeSessionId, knownMessageIds);
       return {
         sessionId: activeSessionId,

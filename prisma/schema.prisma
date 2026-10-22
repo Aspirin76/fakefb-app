@@ -25,6 +25,10 @@ model User {
   sessions     Session[]
   verifyTokens VerificationToken[]
   messages     Message[]
+  postLikes    PostLike[]
+  comments     Comment[]
+  stories      Story[]
+  storyViews   StoryView[]
   conversationsAsUser Conversation[]      @relation("ConversationsAsUser")
   conversationMemberships ConversationMember[] @relation("ConversationMembers")
 }
@@ -108,10 +112,69 @@ model VerificationToken {
 model Post {
   id        String   @id @default(cuid())
   content   String
+  image     String?
   authorId  String
   createdAt DateTime @default(now())
 
-  author User @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  author   User        @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  likes    PostLike[]
+  comments Comment[]
 
   @@index([authorId])
+  @@index([createdAt])
+}
+
+model PostLike {
+  postId    String
+  userId    String
+  createdAt DateTime @default(now())
+
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([postId, userId])
+  @@index([userId])
+}
+
+model Comment {
+  id        String   @id @default(cuid())
+  postId    String
+  userId    String
+  content   String
+  createdAt DateTime @default(now())
+
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([postId])
+}
+
+model Story {
+  id        String   @id @default(cuid())
+  authorId  String
+  content   String
+  emoji     String?
+  color     String?
+  image     String?
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+
+  author User       @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  views  StoryView[]
+
+  @@index([createdAt])
+  @@index([expiresAt])
+}
+
+model StoryView {
+  id       String   @id @default(cuid())
+  storyId  String
+  userId   String
+  viewedAt DateTime @default(now())
+
+  story Story @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([storyId, userId])
+  @@index([userId])
 }

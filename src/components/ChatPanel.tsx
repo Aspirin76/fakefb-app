@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRealtime } from "@/components/RealtimeProvider";
 
 export type ChatMessage = {
   id: string;
@@ -90,6 +91,23 @@ export function ChatPanel({
   useEffect(() => {
     void fetch(`/api/chat/${conversationId}/read`, { method: "POST" });
   }, [conversationId]);
+
+  // 收到即時推播（例如其他視窗送出的訊息）就重新載入
+  const { subscribe } = useRealtime();
+  useEffect(() => {
+    return subscribe((type, data) => {
+      if (type !== "chat:new") return;
+      const payload = data as { conversationId?: string };
+      if (payload.conversationId !== conversationId) return;
+
+      void fetch(`/api/chat/${conversationId}/messages`)
+        .then((res) => res.json())
+        .then((result: { messages?: ChatMessage[] }) => {
+          if (result.messages) setMessages(result.messages);
+        })
+        .catch(() => {});
+    });
+  }, [subscribe, conversationId]);
 
   const lastMine = useMemo(() => {
     const mine = messages.filter((m) => m.senderId === currentUser.id);

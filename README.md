@@ -15,6 +15,10 @@
 | 動態牆 | 登入後可以發文、看到自己的貼文 |
 | 搜尋 | 依姓名 / Email 找使用者 |
 | **AI 聊天** | 跟 NPC 好友聊天，**用 OpenCode 當 LLM 引擎**，每個 NPC 有自己的人設與記憶 |
+| **限時動態** | 24 小時自動消失的動態，可發布、可看別人的（24 小時內） |
+| **貼文互動** | 按讚 / 留言，留言可展開收合 |
+| **即時推播** | SSE 連線，新貼文 / 留言 / 動態 / 訊息不用重新整理就會更新 |
+| **在線狀態** | 誰正在線上，頭像上有綠點 |
 | 開發信箱 | 每封寄出的驗證信都會記錄在 `dev-mails.log`（含驗證連結），方便本地查看 |
 | 開發模式 | 沒設定 `RESEND_API_KEY` 時，驗證連結會直接顯示在畫面上，流程照跑 |
 
@@ -58,7 +62,8 @@ npm run dev          # http://localhost:3000
 | `npm run db:seed` | 建立示範資料 |
 | `npm run setup:env` | 把「貼上-Resend-金鑰.txt」的金鑰同步到 `.env` |
 | `npm run test:smoke` | 端到端煙霧測試（需先開好 dev server） |
-| `npm run test:chat` | 聊天功能測試：登入 → 送訊息 → 確認 NPC 回覆 |
+| `npm run test:chat` | 聊天功能測試：建立對話 → 送訊息 → 表情 / 引用 / 刪除 / 群組 |
+| `npm run test:social` | 社群功能測試：限時動態 → 按讚 → 留言 → SSE 推播 → 在線狀態 |
 | `npm run test:email` | 真的呼叫 Resend 寄一封信出來（需先開好 dev server） |
 | `npm run lint` | ESLint |
 
@@ -140,6 +145,46 @@ npm run dev          # http://localhost:3000
 
 ---
 
+## 限時動態 / 貼文互動 / 即時推播
+
+### 限時動態（Stories）
+
+- 動態牆最上方有個橫向的動態列，點「＋」可以發布自己的（選表情 + 文字）
+- 點別人的頭像會進入觀看器：全螢幕顯示、5 秒自動前進、上方有進度條
+- 可以左右滑切換不同人的動態，看過的會變成灰色
+- 預設 **24 小時後自動消失**（`Story.expiresAt`）
+
+### 貼文互動
+
+- 每則貼文可以按讚（愛心）、留言
+- 留言超過 2 則時會摺疊，可展開 / 收合
+- 按讚與留言都是樂觀更新，點下去馬上就有反應，不用等伺服器
+
+### 即時推播（SSE）
+
+`/api/events` 開一條 Server-Sent Events 連線，會推送：
+
+| 事件 | 觸發時機 |
+| --- | --- |
+| `presence` | 有人上線 / 下線 |
+| `post:new` | 有新貼文 |
+| `post:update` | 貼文被按讚 / 留言 |
+| `story:new` | 有新限時動態 |
+| `chat:new` | 對話有新訊息 |
+
+前端收到後會 `router.refresh()` 重跑伺服器元件，或在聊天頁直接拉新訊息。
+
+> 這是**單機記憶體**實作（`src/lib/realtime.ts` 的 EventEmitter）。
+> 若要部署成多台機器，需要換成 Redis Pub/Sub。
+
+### 在線狀態
+
+- SSE 連線建立時把自己標記為上線，斷線時移除
+- 動態牆側邊欄有「現在上線」名單
+- 頭像右下角有綠點代表本人正在線
+
+---
+
 ## AI 聊天（OpenCode 當 LLM 引擎）
 
 FakeBook 裡有兩個 NPC 好友：**小葵**（開朗好奇）跟 **阿哲**（沉穩理性）。
@@ -194,6 +239,7 @@ FakeBook 裡有兩個 NPC 好友：**小葵**（開朗好奇）跟 **阿哲**（
 ```bash
 npm run dev        # 終端機 1
 npm run test:chat  # 終端機 2：建立對話 → 送訊息 → 表情 / 引用 / 刪除 / 群組
+npm run test:social  # 終端機 2：限時動態 → 按讚 → 留言 → SSE
 ```
 
 ---
@@ -202,8 +248,8 @@ npm run test:chat  # 終端機 2：建立對話 → 送訊息 → 表情 / 引�
 
 ```
 prisma/
-  schema.prisma          User / Session / VerificationToken / Post / Conversation / ConversationMember / Message
-  seed.mjs               示範資料 + NPC 角色
+  schema.prisma          User / Session / VerificationToken / Post / PostLike / Comment / Story / StoryView / Conversation / ConversationMember / Message
+  seed.mjs               示範資料 + NPC 角色 + 示範貼文/留言/限時動態
 src/
   app/
     layout.tsx           根版面 + navbar
@@ -217,6 +263,12 @@ src/
     search/              搜尋使用者
     chat/                聊天（對話清單 / 對話頁）
     api/auth/me/         給 navbar 查目前登入者
+    api/events/            SSE 即時推播（presence / post / story / chat）
+    api/posts/             發貼
+    api/posts/[id]/like/    按讚
+    api/posts/[id]/comments/ 留言
+    api/stories/           發布限時動態
+    api/stories/[id]/view/  標記看過
     api/chat/            建立對話（1 對 1 / 群組）
     api/chat/[conversationId]/messages/          送訊息
     api/chat/[conversationId]/messages/[id]/react  表情回應
@@ -229,6 +281,8 @@ src/
     NavBar.tsx  UserMenu.tsx  RegisterForm.tsx  LoginForm.tsx
     ResendVerificationForm.tsx  PostComposer.tsx
     ChatPanel.tsx  NewChatButton.tsx  NewChatDialog.tsx
+    StoriesBar.tsx  StoryViewer.tsx  PostCard.tsx
+    OnlineFriends.tsx  RealtimeProvider.tsx  FeedLiveUpdates.tsx
   lib/
     prisma.ts            Prisma Client 單例
     session.ts           session 建立 / 讀取 / 銷毀
@@ -237,6 +291,9 @@ src/
     opencode.ts          OpenCode 聊天引擎（NPC agent / session / 收訊息 / 群組拆訊息）
     chat.ts              聊天室資料存取（對話、成員、未讀數、訊息序列化）
     npcs.ts              NPC 角色設定
+    realtime.ts          SSE 事件匯流排（在線名單）
+    stories.ts           限時動態分組
+    users.ts             頭像顏色 / 初始字 / 相對時間
     validation.ts        Zod schema
 scripts/
   smoke-test.mjs         端到端煙霧測試

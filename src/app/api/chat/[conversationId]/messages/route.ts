@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
+import { publish } from "@/lib/realtime";
 import { getCurrentUser } from "@/lib/session";
 import { getConversationForUser, serializeMessage } from "@/lib/chat";
 import { npcReply, npcSignature } from "@/lib/opencode";
@@ -9,6 +10,35 @@ const bodySchema = z.object({
   type: z.enum(["text", "sticker", "photo"]).default("text"),
   replyToId: z.string().nullish(),
 });
+
+/** GET /api/chat/[conversationId]/messages — 取得對話中的訊息 */
+export async function GET(
+  _request: Request,
+  { params }: { params: Promise<{ conversationId: string }> },
+) {
+  const user = await getCurrentUser();
+  if (!user) {
+    return Response.json({ error: "請先登入" }, { status: 401 });
+  }
+
+  const { conversationId } = await params;
+
+  const conversation = await prisma.conversation.findFirst({
+    where: { id: conversationId, userId: user.id },
+  });
+
+  if (!conversation) {
+    return Response.json({ error: "找不到這段對話" }, { status: 404 });
+  }
+
+  const messages = await prisma.message.findMany({
+    where: { conversationId },
+    orderBy: { createdAt: "asc" },
+    take: 200,
+  });
+
+  return Response.json({ messages: messages.map(serializeMessage) });
+}
 
 /**
  * POST /api/chat/[conversationId]/messages
@@ -96,7 +126,7 @@ export async function POST(
       {
         error:
           error instanceof Error ? error.message : "AI 回覆失敗，請稍後再試一次。",
-        userMessage,
+        userMessage: serializeMessage(userMessage),
       },
       { status: 502 },
     );
@@ -121,8 +151,13 @@ export async function POST(
     data: { updatedAt: new Date() },
   });
 
-  return Response.json({
+  const payload = {
     userMessage: serializeMessage(userMessage),
     npcMessages: npcMessages.map(serializeMessage),
-  });
+  };
+
+  // 廣播給其他連線中的用戶
+  publish("chat:new", { conversationId: conversation.id, ...payload }, user.id);
+
+  return Response.json(payload);
 }

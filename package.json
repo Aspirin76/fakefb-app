@@ -14,6 +14,7 @@
     "setup:env": "node scripts/sync-env.mjs",
     "test:smoke": "node scripts/smoke-test.mjs",
     "test:chat": "node scripts/test-chat.mjs",
+    "test:social": "node scripts/test-social.mjs",
     "test:email": "node scripts/test-email-send.mjs",
     "postinstall": "prisma generate"
   },
