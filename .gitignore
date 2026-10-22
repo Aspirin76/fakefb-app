@@ -34,6 +34,10 @@ yarn-error.log*
 .env*
 !.env.example
 
+# 放 Resend API 金鑰的地方（含敏感資訊，不要進 Git）
+貼上-Resend-金鑰.txt
+*.key
+
 # database
 /prisma/*.db
 /prisma/*.db-journal

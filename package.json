@@ -11,6 +11,7 @@
     "db:migrate": "prisma migrate dev",
     "db:studio": "prisma studio",
     "db:seed": "node prisma/seed.mjs",
+    "setup:env": "node scripts/sync-env.mjs",
     "test:smoke": "node scripts/smoke-test.mjs",
     "postinstall": "prisma generate"
   },

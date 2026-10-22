@@ -54,6 +54,7 @@ npm run dev          # http://localhost:3000
 | `npm run db:migrate` | 產生 migration 檔 |
 | `npm run db:studio` | 開啟 Prisma Studio 看資料 |
 | `npm run db:seed` | 建立示範資料 |
+| `npm run setup:env` | 把「貼上-Resend-金鑰.txt」的金鑰同步到 `.env` |
 | `npm run test:smoke` | 端到端煙霧測試（需先開好 dev server） |
 | `npm run lint` | ESLint |
 
@@ -61,22 +62,35 @@ npm run dev          # http://localhost:3000
 
 ## Resend 設定（寄驗證信）
 
-1. 到 [resend.com/api-keys](https://resend.com/api-keys) 建立 API key（權限選 **Sending access** 即可）。
-2. 把 key 填進 `.env`：
+### 步驟
 
-   ```env
-   RESEND_API_KEY="re_xxxxxxxx"
+1. 到 [resend.com/api-keys](https://resend.com/api-keys) 建立 API key（權限選 **Sending access** 即可）。
+2. 用記事本打開專案根目錄的 **`貼上-Resend-金鑰.txt`**，把金鑰貼在 `RESEND_API_KEY=` 後面並存檔。
+   （這支金鑰等同密碼，該檔案已被 `.gitignore` 排除，不會被 commit）
+3. 執行同步指令，把金鑰寫進 `.env`：
+
+   ```bash
+   npm run setup:env
    ```
 
-3. 設定寄件人 `EMAIL_FROM`：
-   - **還沒驗證網域**：用沙盒 `假FB <onboarding@resend.dev>`，但 **只能寄到你的 Resend 帳號信箱**。
-   - **有自己的網域**：到 Resend Dashboard → Domains 新增網域，照著設定 DNS（SPF / DKIM）驗證通過後，
-     `EMAIL_FROM` 改成 `"假FB <noreply@yourdomain.com>"`。
+4. 重新啟動 `npm run dev`，之後就會真的寄信了。
 
-4. `APP_URL` 要跟實際跑的網址一致，驗證連結會用這個值組出來（正式環境記得改成你的網域）。
+> 也可以直接手動編輯 `.env`，效果一樣；`npm run setup:env` 只是幫你不用改格式。
+
+### 寄件人 `EMAIL_FROM`
+
+- **還沒驗證網域**：用沙盒 `假FB <onboarding@resend.dev>`，但 **只能寄到你的 Resend 帳號信箱**。
+- **有自己的網域**：到 Resend Dashboard → Domains 新增網域，照著設定 DNS（SPF / DKIM）驗證通過後，
+  在 `貼上-Resend-金鑰.txt` 的 `EMAIL_FROM=` 填 `"假FB <noreply@yourdomain.com>"`，再跑一次 `npm run setup:env`。
+
+### `APP_URL`
+
+要跟實際跑的網址一致，驗證連結會用這個值組出來（正式環境記得改成你的網域）。
 
 > 測試時不要用 `test@gmail.com` 這種假地址，真的寄出去會退信並拉低寄信評質。
 > 想測成功/退信/檢舉三種結果，用 Resend 提供的 `delivered@resend.dev`、`bounced@resend.dev`、`complained@resend.dev`。
+>
+> 沒設定金鑰時會自動進入**開發模式**：不寄信，但驗證連結會直接顯示在畫面上，流程照跑。
 
 ---
 
