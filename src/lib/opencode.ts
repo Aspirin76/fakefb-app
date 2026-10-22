@@ -126,6 +126,15 @@ function isAgentNotFound(error: unknown) {
 }
 
 /**
+ * OpenCode free tier 偶爾會暫時性拒絕（額度 / 速率限制），
+ * 這種情況重試一下就好。
+ */
+function isTransientError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return /free tier|usage limit|rate limit|逾時|timeout|too many/i.test(message);
+}
+
+/**
  * 剛寫好 opencode.json 時，OpenCode 還沒重新載入設定，
  * 這時建立 session 會找不到 agent。這裡主動等它載入。
  */
@@ -171,7 +180,7 @@ async function waitForReply(
   client: OpencodeClient,
   sessionID: string,
   knownMessageIds: Set<string>,
-  timeoutMs = 60_000,
+  timeoutMs = 45_000,
 ) {
   const deadline = Date.now() + timeoutMs;
 
@@ -248,7 +257,9 @@ export async function npcReply({
   let activeSessionId: string | null = sessionId ?? null;
   let lastError: unknown;
 
-  for (let attempt = 0; attempt < 3; attempt++) {
+  const MAX_ATTEMPTS = 3;
+
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
     if (!activeSessionId) {
       const session = await client.session.create({
         agent: AGENT_ID,
@@ -268,24 +279,42 @@ export async function npcReply({
         text: message,
       });
     } catch (error) {
-      if (!isAgentNotFound(error)) throw error;
+      if (isAgentNotFound(error)) {
+        // 舊 session 綁的 agent 不見了（例如工作目錄被清掉）→ 換新的 session 再試
+        lastError = error;
+        activeSessionId = null;
+        await sleep(800);
+        continue;
+      }
 
-      // 舊 session 綁的 agent 不見了（例如工作目錄被清掉）→ 換新的 session 再試
-      lastError = error;
-      activeSessionId = null;
-      await sleep(800);
-      continue;
+      if (isTransientError(error) && attempt < MAX_ATTEMPTS - 1) {
+        // free tier 暫時性拒絕 → 退避後重試
+        lastError = error;
+        await sleep(2000 * (attempt + 1));
+        continue;
+      }
+
+      throw error;
     }
 
     try {
       const reply = await waitForReply(client, activeSessionId, knownMessageIds);
       return { sessionId: activeSessionId, reply };
     } catch (error) {
-      if (!isAgentNotFound(error)) throw error;
+      if (isAgentNotFound(error)) {
+        lastError = error;
+        activeSessionId = null;
+        await sleep(800);
+        continue;
+      }
 
-      lastError = error;
-      activeSessionId = null;
-      await sleep(800);
+      if (isTransientError(error) && attempt < MAX_ATTEMPTS - 1) {
+        lastError = error;
+        await sleep(2000 * (attempt + 1));
+        continue;
+      }
+
+      throw error;
     }
   }
 
