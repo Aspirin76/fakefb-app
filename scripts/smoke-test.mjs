@@ -1,17 +1,31 @@
 /**
- * 假FB 端到端煙霧測試
+ * FakeBook 端到端煙霧測試
  *
  * 會依序測試：
- *   1. 註冊 -> 產生驗證信（含開發模式的驗證連結）
- *   2. 點驗證連結 -> Email 驗證成功
+ *   1. 註冊 -> 產生驗證信
+ *   2. 用驗證連結完成 Email 驗證
  *   3. 登入 -> 拿到 session cookie
  *   4. 帶 cookie 造訪 /feed -> 200
  *   5. 重複使用同一組 token -> 應該失敗
+ *   6. 未驗證的帳號不能登入
+ *   7. 重複註冊 -> 被擋下來
+ *   8. 發貼 -> 動態牆看得到
  *
- * 用法：先開好 `npm run dev`，再執行 `node scripts/smoke-test.mjs`
+ * 驗證連結是從開發信箱記錄檔（dev-mails.log）取得的，
+ * 所以不管目前是「沒設定金鑰的開發模式」還是「真的寄信」都能測。
+ *
+ * 用法：先開好 `npm run dev`，再執行 `npm run test:smoke`
  */
+import { readFileSync, existsSync } from "node:fs";
 
 const BASE = process.env.BASE_URL ?? "http://localhost:3000";
+
+// Resend 的沙盒只接受 resend.dev 的測試信箱，example.com 會被擋掉。
+// 用 plus-addressing 讓每次測試都是全新的信箱，不會撞到資料庫的唯一性限制。
+const stamp = Date.now();
+const email = `delivered+smoke${stamp}@resend.dev`;
+const email2 = `delivered+pending${stamp}@resend.dev`;
+const password = "password123";
 
 const DECODE = { "&quot;": '"', "&#39;": "'", "&amp;": "&", "&lt;": "<", "&gt;": ">" };
 
@@ -35,7 +49,7 @@ async function fetchPage(path) {
   return { status: res.status, html: await res.text(), headers: res.headers };
 }
 
-async function submitForm(path, fields, extra = {}) {
+async function submitForm(path, extra = {}) {
   const { html } = await fetchPage(path);
   const form = new FormData();
   for (const [key, value] of Object.entries(hiddenInputs(html))) {
@@ -70,41 +84,62 @@ function assert(condition, message) {
   return true;
 }
 
-const email = `tester${Date.now()}@example.com`;
-const password = "password123";
+/** 從開發信箱記錄檔（dev-mails.log）找出某個收件人最近的驗證連結 */
+function findVerifyLink(mailbox) {
+  const log = "dev-mails.log";
+  if (!existsSync(log)) return null;
 
-console.log(`\n=== 假FB 煙霧測試 (${BASE}) ===\n`);
+  const blocks = readFileSync(log, "utf8").split(/={10,}/).filter(Boolean);
+
+  for (const block of blocks.reverse()) {
+    if (!block.includes(`收件人: ${mailbox}`)) continue;
+    const match = block.match(/驗證連結:\s*(\S+)/);
+    if (match) return match[1];
+  }
+
+  return null;
+}
+
+console.log(`\n=== FakeBook 煙霧測試 (${BASE}) ===\n`);
 
 // 1. 註冊
 console.log("1) 註冊");
-const register = await submitForm("/register", {}, { name: "測試小明", email, password });
+const register = await submitForm("/register", { name: "測試小明", email, password });
 assert(register.status === 303, `註冊成功（HTTP ${register.status}）`);
 assert(
   (register.location ?? "").startsWith("/check-email"),
   `導向到 check-email（${register.location}）`,
 );
 
-// 2. 取得驗證連結（開發模式會放在 dev 參數；正式模式則在信箱裡）
+// 2. 取得驗證連結並完成驗證
 console.log("\n2) Email 驗證");
-const devParam = new URL(register.location, BASE).searchParams.get("dev");
-if (devParam) {
-  const verify = await fetchPage(`/verify-email?token=${encodeURIComponent(new URL(devParam).searchParams.get("token"))}`);
+const verifyLink = findVerifyLink(email);
+assert(Boolean(verifyLink), "開發信箱記錄檔找得到驗證連結");
+
+if (verifyLink) {
+  const token = new URL(verifyLink).searchParams.get("token");
+  const verify = await fetchPage(`/verify-email?token=${encodeURIComponent(token)}`);
   assert(verify.html.includes("驗證成功"), "驗證連結 -> 顯示驗證成功");
+
+  // 5. token 只能使用一次
+  console.log("\n3) token 只能使用一次");
+  const again = await fetchPage(`/verify-email?token=${encodeURIComponent(token)}`);
+  assert(!again.html.includes("驗證成功"), "重複使用同一組 token 會失敗");
 } else {
-  console.log("· 開發模式沒有 dev 連結（可能真的有寄信），請自行到信箱點連結");
+  process.exitCode = 1;
 }
 
-// 3. 登入
-console.log("\n3) 登入");
-const login = await submitForm("/login", {}, { email, password });
+// 4. 登入
+console.log("\n4) 登入");
+const login = await submitForm("/login", { email, password });
 assert(login.status === 303, `登入成功（HTTP ${login.status}）`);
 assert((login.location ?? "") === "/feed", `登入後導向 /feed（${login.location}）`);
 
 const cookie = login.setCookie.map((c) => c.split(";")[0]).join("; ");
 assert(cookie.includes("fakefb_session"), "取得 session cookie");
 
-// 4. 帶 cookie 造訪 /feed
-console.log("\n4) 動態牆");
+// 5. 帶 cookie 造訪 /feed
+console.log("\n5) 動態牆");
 const feed = await fetch(`${BASE}/feed`, {
   headers: { cookie },
   redirect: "manual",
@@ -112,32 +147,20 @@ const feed = await fetch(`${BASE}/feed`, {
 assert(feed.status === 200, `造訪 /feed 成功（HTTP ${feed.status}）`);
 assert((await feed.text()).includes("測試小明"), "動態牆顯示已登入的使用者");
 
-// 5. 驗證 token 不能重複使用
-console.log("\n5) token 只能使用一次");
-if (devParam) {
-  const token = new URL(devParam).searchParams.get("token");
-  const again = await fetchPage(`/verify-email?token=${encodeURIComponent(token)}`);
-  assert(!again.html.includes("驗證成功"), "重複使用同一組 token 會失敗");
-}
-
 // 6. 還沒驗證 Email 就不准登入
 console.log("\n6) 未驗證不能登入");
-const email2 = `pending${Date.now()}@example.com`;
-const register2 = await submitForm("/register", {}, { name: "未驗證者", email: email2, password });
-const devParam2 = new URL(register2.location, BASE).searchParams.get("dev");
-if (devParam2) {
-  const login2 = await submitForm("/login", {}, { email: email2, password });
-  assert(login2.status === 200, "未驗證的帳號登入會被擋下（HTTP 200 = 表單回應錯誤訊息）");
-  assert(login2.html.includes("Email 還沒驗證"), "顯示尚未驗證的錯誤訊息");
-  assert(login2.html.includes("搜尋假FB"), "錯誤訊息頁的 navbar 沒有壞掉");
-}
+await submitForm("/register", { name: "未驗證者", email: email2, password });
+const login2 = await submitForm("/login", { email: email2, password });
+assert(login2.status === 200, "未驗證的帳號登入會被擋下（HTTP 200 = 表單回應錯誤訊息）");
+assert(login2.html.includes("Email 還沒驗證"), "顯示尚未驗證的錯誤訊息");
+assert(login2.html.includes("搜尋FakeBook"), "錯誤訊息頁的 navbar 沒有壞掉");
 
-// 7. 同一組 hidden input 重新送出 -> 註冊 / 登入
+// 7. 重複註冊
 console.log("\n7) 重複註冊");
-const dup = await submitForm("/register", {}, { name: "重複", email, password });
+const dup = await submitForm("/register", { name: "重複", email, password });
 assert(dup.status === 200, "重複註冊會被擋下");
 assert(dup.html.includes("已經註冊過"), "顯示 Email 已經註冊過");
-assert(dup.html.includes("搜尋假FB"), "錯誤訊息頁的 navbar 沒有壞掉");
+assert(dup.html.includes("搜尋FakeBook"), "錯誤訊息頁的 navbar 沒有壞掉");
 
 // 8. 發貼
 console.log("\n8) 發貼");
@@ -147,7 +170,7 @@ const postForm = new FormData();
 for (const [key, value] of Object.entries(composerFields)) {
   if (key.startsWith("$ACTION")) postForm.append(key, value);
 }
-postForm.append("content", "哈囉，假FB！這是第一篇測試貼文。");
+postForm.append("content", "哈囉，FakeBook！這是第一篇測試貼文。");
 const postRes = await fetch(`${BASE}/feed`, {
   method: "POST",
   headers: { cookie, origin: BASE },

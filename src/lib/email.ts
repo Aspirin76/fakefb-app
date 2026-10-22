@@ -1,8 +1,10 @@
 import { Resend } from "resend";
+import { appendFileSync } from "node:fs";
+import { join } from "node:path";
 
 /** 讀取寄件人設定，沒設定就給一個好讀的錯誤訊息 */
 function getFrom() {
-  return process.env.EMAIL_FROM?.trim() || "假FB <onboarding@resend.dev>";
+  return process.env.EMAIL_FROM?.trim() || "FakeBook <onboarding@resend.dev>";
 }
 
 /** 檢查 Resend 是否已經設定好 */
@@ -26,6 +28,33 @@ function appUrl() {
   return (process.env.APP_URL?.trim() || "http://localhost:3000").replace(/\/$/, "");
 }
 
+/**
+ * 把寄出的信記錄到 dev-mails.log（只在開發環境）。
+ * 就像 Django 的 console email backend 一樣，
+ * 方便沒有真的收到信、或要自動化測試的時候查看驗證連結。
+ */
+export const DEV_MAILBOX_LOG = "dev-mails.log";
+
+function logToDevMailbox(to: string, subject: string, verifyUrl: string) {
+  if (process.env.NODE_ENV === "production") return;
+
+  const entry = [
+    "",
+    "=".repeat(60),
+    `時間: ${new Date().toLocaleString("zh-TW")}`,
+    `收件人: ${to}`,
+    `主旨: ${subject}`,
+    `驗證連結: ${verifyUrl}`,
+    "",
+  ].join("\n");
+
+  try {
+    appendFileSync(join(process.cwd(), DEV_MAILBOX_LOG), entry, "utf8");
+  } catch (error) {
+    console.warn("[email] 無法寫入開發信箱記錄檔:", error);
+  }
+}
+
 /** 驗證信用的 HTML 樣板 */
 function verificationEmailHtml(name: string, verifyUrl: string) {
   return `
@@ -38,15 +67,15 @@ function verificationEmailHtml(name: string, verifyUrl: string) {
           <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 2px 10px rgba(0,0,0,.08);">
             <tr>
               <td style="background:#1877f2;padding:24px 32px;">
-                <h1 style="margin:0;color:#ffffff;font-size:22px;font-weight:700;">假FB</h1>
-                <p style="margin:4px 0 0;color:#dbe9ff;font-size:14px;">歡迎加入假FB</p>
+                <h1 style="margin:0;color:#ffffff;font-size:22px;font-weight:700;">FakeBook</h1>
+                <p style="margin:4px 0 0;color:#dbe9ff;font-size:14px;">歡迎加入FakeBook</p>
               </td>
             </tr>
             <tr>
               <td style="padding:32px;">
                 <p style="margin:0 0 16px;font-size:16px;line-height:1.6;">Hi，${escapeHtml(name)}！</p>
                 <p style="margin:0 0 24px;font-size:15px;line-height:1.6;color:#3a3b3c;">
-                  請點擊下面的按鈕完成 Email 驗證，驗證後就可以開始使用假FB 了。
+                  請點擊下面的按鈕完成 Email 驗證，驗證後就可以開始使用FakeBook 了。
                 </p>
                 <p style="margin:0 0 24px;">
                   <a href="${verifyUrl}"
@@ -61,13 +90,13 @@ function verificationEmailHtml(name: string, verifyUrl: string) {
                   ${verifyUrl}
                 </p>
                 <p style="margin:0;font-size:13px;line-height:1.6;color:#8a8d91;">
-                  這封驗證信將於 <strong>24 小時</strong>後失效。若你沒有申請假FB帳號，請忽略此信。
+                  這封驗證信將於 <strong>24 小時</strong>後失效。若你沒有申請FakeBook帳號，請忽略此信。
                 </p>
               </td>
             </tr>
             <tr>
               <td style="background:#f0f2f5;padding:16px 32px;">
-                <p style="margin:0;font-size:12px;color:#8a8d91;">© 假FB · 這是系統寄出的驗證信</p>
+                <p style="margin:0;font-size:12px;color:#8a8d91;">© FakeBook · 這是系統寄出的驗證信</p>
               </td>
             </tr>
           </table>
@@ -106,6 +135,7 @@ export async function sendVerificationEmail({
   idempotencyKey: string;
 }) {
   const verifyUrl = `${appUrl()}/verify-email?token=${encodeURIComponent(token)}`;
+  const subject = "【FakeBook】請驗證你的 Email 帳號";
 
   if (!isEmailConfigured()) {
     if (process.env.NODE_ENV === "production") {
@@ -120,6 +150,8 @@ export async function sendVerificationEmail({
         `        驗證連結：${verifyUrl}\n`,
     );
 
+    logToDevMailbox(to, subject, verifyUrl);
+
     return { id: "dev-mode-no-send", verifyUrl, devMode: true as const };
   }
 
@@ -129,7 +161,7 @@ export async function sendVerificationEmail({
     {
       from: getFrom(),
       to: [to],
-      subject: "【假FB】請驗證你的 Email 帳號",
+      subject,
       html: verificationEmailHtml(name, verifyUrl),
       text: `Hi ${name}！請開啟以下連結完成 Email 驗證：${verifyUrl}（24 小時內有效）`,
     },
@@ -139,6 +171,8 @@ export async function sendVerificationEmail({
   if (error) {
     throw new Error(`寄送驗證信失敗：${error.message}`);
   }
+
+  logToDevMailbox(to, subject, verifyUrl);
 
   return { id: data?.id, verifyUrl, devMode: false as const };
 }

@@ -15,13 +15,13 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: {
-    default: "假FB",
-    template: "%s | 假FB",
+    default: "FakeBook",
+    template: "%s | FakeBook",
   },
   description: "一個仿造 Facebook 的社群網站，支援註冊與 Email 驗證。",
 };
 
-// 假FB 的內容幾乎都依賴登入狀態（cookie）與資料庫，
+// FakeBook 的內容幾乎都依賴登入狀態（cookie）與資料庫，
 // 允許路由在請求時阻塞渲染，不強制產生靜態 shell。
 export const instant = false;
 

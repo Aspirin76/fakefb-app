@@ -47,7 +47,7 @@ if (!apiKey.startsWith("re_")) {
 
 const updates = {
   RESEND_API_KEY: apiKey,
-  EMAIL_FROM: emailFrom ?? "假FB <onboarding@resend.dev>",
+  EMAIL_FROM: emailFrom ?? "FakeBook <onboarding@resend.dev>",
   APP_URL: appUrl ?? "http://localhost:3000",
 };
 

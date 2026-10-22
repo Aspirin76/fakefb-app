@@ -28,8 +28,8 @@ async function main() {
   if (existing === 0) {
     await prisma.post.createMany({
       data: [
-        { authorId: user.id, content: "哈囉！這是假FB的第一則貼文 🎉" },
-        { authorId: user.id, content: "歡迎加入假FB，一起來聊天吧！" },
+        { authorId: user.id, content: "哈囉！這是FakeBook的第一則貼文 🎉" },
+        { authorId: user.id, content: "歡迎加入FakeBook，一起來聊天吧！" },
       ],
     });
   }

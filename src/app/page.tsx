@@ -11,7 +11,7 @@ export default async function HomePage() {
     <div className="mx-auto max-w-6xl px-4 py-10">
       <section className="grid gap-10 lg:grid-cols-2 lg:items-center">
         <div>
-          <h1 className="text-5xl font-bold tracking-tight text-[#1877f2]">假FB</h1>
+          <h1 className="text-5xl font-bold tracking-tight text-[#1877f2]">FakeBook</h1>
           <p className="mt-4 text-lg leading-relaxed text-[#606770]">
             一個仿造 Facebook 的社群網站練習專案。
             <br />
@@ -51,7 +51,7 @@ export default async function HomePage() {
         </div>
 
         <div className="rounded-xl bg-white p-8 shadow-sm">
-          <h2 className="text-2xl font-bold text-[#1877f2]">假FB</h2>
+          <h2 className="text-2xl font-bold text-[#1877f2]">FakeBook</h2>
           <p className="mt-2 text-sm text-[#606770]">
             把你的人生經驗分享給朋友們…
           </p>

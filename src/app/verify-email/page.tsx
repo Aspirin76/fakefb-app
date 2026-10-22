@@ -13,7 +13,7 @@ const views = {
   ok: {
     icon: "✅",
     title: "驗證成功！",
-    body: "你的 Email 已經驗證完成，現在可以登入假FB 了。",
+    body: "你的 Email 已經驗證完成，現在可以登入FakeBook 了。",
     action: { href: "/login", label: "立即登入" },
   },
   "already-verified": {

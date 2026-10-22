@@ -7,16 +7,16 @@ export function NavBar() {
       <div className="mx-auto flex h-14 max-w-6xl items-center gap-3 px-4">
         <Link href="/" className="flex items-center gap-2 text-white">
           <span className="flex h-9 w-9 items-center justify-center rounded-full bg-white text-lg font-bold text-[#1877f2]">
-            f
+            F
           </span>
-          <span className="hidden text-xl font-bold sm:block">假FB</span>
+          <span className="hidden text-xl font-bold sm:block">FakeBook</span>
         </Link>
 
         <form action="/search" className="hidden flex-1 md:block">
           <input
             type="search"
             name="q"
-            placeholder="搜尋假FB"
+            placeholder="搜尋FakeBook"
             className="fb-input h-10 w-full max-w-md bg-[#f0f2f5] !py-0 !pl-4 !pr-10 text-[#1c1e21] placeholder:text-[#606770]"
           />
         </form>

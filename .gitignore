@@ -42,6 +42,9 @@ yarn-error.log*
 /prisma/*.db
 /prisma/*.db-journal
 
+# 開發模式的寄信記錄檔（含驗證連結，不要進 Git）
+dev-mails.log
+
 # vercel
 .vercel
 

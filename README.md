@@ -1,4 +1,4 @@
-# 假FB (FakeFB)
+# FakeBook
 
 一個仿造 Facebook 的社群網站練習專案。目前完成 **註冊 / 登入 + Email 驗證信** 的完整流程。
 
@@ -14,6 +14,7 @@
 | 重新寄送驗證信 | 沒收到信可以自己再寄一封 |
 | 動態牆 | 登入後可以發文、看到自己的貼文 |
 | 搜尋 | 依姓名 / Email 找使用者 |
+| 開發信箱 | 每封寄出的驗證信都會記錄在 `dev-mails.log`（含驗證連結），方便本地查看 |
 | 開發模式 | 沒設定 `RESEND_API_KEY` 時，驗證連結會直接顯示在畫面上，流程照跑 |
 
 ---
@@ -80,9 +81,9 @@ npm run dev          # http://localhost:3000
 
 ### 寄件人 `EMAIL_FROM`
 
-- **還沒驗證網域**：用沙盒 `假FB <onboarding@resend.dev>`，但 **只能寄到你的 Resend 帳號信箱**。
+- **還沒驗證網域**：用沙盒 `FakeBook <onboarding@resend.dev>`，但 **只能寄到你的 Resend 帳號信箱**。
 - **有自己的網域**：到 Resend Dashboard → Domains 新增網域，照著設定 DNS（SPF / DKIM）驗證通過後，
-  在 `貼上-Resend-金鑰.txt` 的 `EMAIL_FROM=` 填 `"假FB <noreply@yourdomain.com>"`，再跑一次 `npm run setup:env`。
+  在 `貼上-Resend-金鑰.txt` 的 `EMAIL_FROM=` 填 `"FakeBook <noreply@yourdomain.com>"`，再跑一次 `npm run setup:env`。
 
 ### `APP_URL`
 
@@ -92,6 +93,21 @@ npm run dev          # http://localhost:3000
 > 想測成功/退信/檢舉三種結果，用 Resend 提供的 `delivered@resend.dev`、`bounced@resend.dev`、`complained@resend.dev`。
 >
 > 沒設定金鑰時會自動進入**開發模式**：不寄信，但驗證連結會直接顯示在畫面上，流程照跑。
+
+### 開發信箱記錄檔 `dev-mails.log`
+
+開發環境下，每一封寄出的驗證信都會被記錄下來（時間、收件人、主旨、驗證連結），
+就像 Django 的 console email backend 一樣：
+
+```
+============================================================
+時間: 2026/10/22 下午 1:43:07
+收件人: delivered+smoke1792647786507@resend.dev
+主旨: 【FakeBook】請驗證你的 Email 帳號
+驗證連結: http://localhost:3000/verify-email?token=1b3d3848...
+```
+
+這個檔案已加入 `.gitignore`，不會被 commit。
 
 ---
 
